@@ -264,11 +264,13 @@
     position: absolute;
     right: 3rem; top: 50%;
     transform: translateY(-50%);
-    width: 440px; height: 440px;
-    opacity: 0.08;
-    animation: slowSpin 60s linear infinite;
+    width: 500px; height: 500px;
+    opacity: 0;
+    animation: schematicFadeIn 1.2s 0.4s ease forwards;
   }
+  @keyframes schematicFadeIn { to { opacity: 1; } }
   @keyframes slowSpin { to { transform: translateY(-50%) rotate(360deg); } }
+  @media (max-width: 1100px) { .hero-visual { display: none; } }
 
   /* ── SECTION COMMON ── */
   section { position:relative; z-index:1; }
@@ -703,25 +705,7 @@
     </div>
   </div>
 
-  <svg class="hero-visual" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="200" cy="200" r="190" stroke="#CC1F1F" stroke-width="0.5"/>
-    <circle cx="200" cy="200" r="150" stroke="#CC1F1F" stroke-width="0.5"/>
-    <circle cx="200" cy="200" r="110" stroke="#E05050" stroke-width="0.5"/>
-    <circle cx="200" cy="200" r="70"  stroke="#E05050" stroke-width="0.5"/>
-    <circle cx="200" cy="200" r="30"  stroke="#CC1F1F" stroke-width="0.5"/>
-    <line x1="10"  y1="200" x2="390" y2="200" stroke="#CC1F1F" stroke-width="0.5"/>
-    <line x1="200" y1="10"  x2="200" y2="390" stroke="#CC1F1F" stroke-width="0.5"/>
-    <line x1="55"  y1="55"  x2="345" y2="345" stroke="#E05050" stroke-width="0.4"/>
-    <line x1="345" y1="55"  x2="55"  y2="345" stroke="#E05050" stroke-width="0.4"/>
-    <polygon points="200,50 310,125 310,275 200,350 90,275 90,125" stroke="#CC1F1F" stroke-width="0.6" fill="none"/>
-    <circle cx="200" cy="200" r="6" fill="#CC1F1F"/>
-    <circle cx="200" cy="50"  r="3" fill="#E05050"/>
-    <circle cx="310" cy="125" r="3" fill="#E05050"/>
-    <circle cx="310" cy="275" r="3" fill="#E05050"/>
-    <circle cx="200" cy="350" r="3" fill="#E05050"/>
-    <circle cx="90"  cy="275" r="3" fill="#E05050"/>
-    <circle cx="90"  cy="125" r="3" fill="#E05050"/>
-  </svg>
+  <canvas class="hero-visual" id="schematic" width="500" height="500"></canvas>
 </section>
 
 <!-- MARQUEE -->
@@ -1458,6 +1442,262 @@ const obs = new IntersectionObserver(entries => {
   entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
 }, { threshold: 0.15 });
 document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+
+/* ════════════════════════════════════════════
+   BLUEPRINT SCHEMATIC
+════════════════════════════════════════════ */
+(function() {
+  const sc = document.getElementById('schematic');
+  if (!sc) return;
+  const cx = sc.getContext('2d');
+  const W = 500, H = 500;
+  const RED     = '#CC1F1F';
+  const REDHI   = '#E05050';
+  const REDDIM  = 'rgba(204,31,31,0.18)';
+  const REDGLOW = 'rgba(204,31,31,0.07)';
+  const MONO    = "'Share Tech Mono', monospace";
+
+  // Part geometry — top-view bracket shape (centered ~250,250)
+  // Main body
+  const BX=130, BY=160, BW=240, BH=180;
+  // Left arm
+  const LA={x:80,y:195,w:50,h:50};
+  // Right arm
+  const RA={x:370,y:195,w:50,h:50};
+  // Centre hole
+  const CH={x:250,y:250,r:28};
+  // Corner holes
+  const holes=[{x:160,y:190},{x:340,y:190},{x:160,y:310},{x:340,y:310}];
+  // Mounting slots on arms
+  const slots=[{x:88,y:207,w:12,h:26},{x:375,y:207,w:12,h:26}];
+
+  let scanY = -20;
+  let tick  = 0;
+  let blink = true;
+
+  function arrow(x1,y1,x2,y2,len=7){
+    cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x2,y2); cx.stroke();
+    const a=Math.atan2(y2-y1,x2-x1);
+    [[a+2.6],[a-2.6]].forEach(([ang])=>{
+      cx.beginPath(); cx.moveTo(x2,y2);
+      cx.lineTo(x2-len*Math.cos(ang),y2-len*Math.sin(ang));
+      cx.stroke();
+    });
+  }
+
+  function dimLine(x1,y1,x2,y2,label,offset,horiz){
+    cx.save();
+    cx.strokeStyle=REDDIM; cx.fillStyle=REDDIM; cx.lineWidth=0.8;
+    const ox=horiz?0:offset, oy=horiz?offset:0;
+    // extension lines
+    cx.setLineDash([2,4]);
+    cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x1+ox,y1+oy); cx.stroke();
+    cx.beginPath(); cx.moveTo(x2,y2); cx.lineTo(x2+ox,y2+oy); cx.stroke();
+    cx.setLineDash([]);
+    arrow(x1+ox,y1+oy,x2+ox,y2+oy,6);
+    // label
+    cx.font=`9px ${MONO}`; cx.textAlign='center'; cx.textBaseline='middle';
+    const mx=(x1+x2)/2+ox, my=(y1+y2)/2+oy;
+    const tw=cx.measureText(label).width+8;
+    cx.fillStyle='rgba(15,12,12,0.85)';
+    cx.fillRect(mx-tw/2,my-7,tw,14);
+    cx.fillStyle=REDDIM;
+    cx.fillText(label,mx,my);
+    cx.restore();
+  }
+
+  function crosshair(x,y,r=10,alpha=0.5){
+    cx.save(); cx.globalAlpha=alpha;
+    cx.strokeStyle=REDHI; cx.lineWidth=0.7;
+    cx.setLineDash([3,3]);
+    cx.beginPath(); cx.moveTo(x-r*2.5,y); cx.lineTo(x+r*2.5,y); cx.stroke();
+    cx.beginPath(); cx.moveTo(x,y-r*2.5); cx.lineTo(x,y+r*2.5); cx.stroke();
+    cx.setLineDash([]);
+    cx.beginPath(); cx.arc(x,y,r,0,Math.PI*2); cx.stroke();
+    cx.restore();
+  }
+
+  function callout(x,y,lx,ly,lines){
+    cx.save();
+    cx.strokeStyle=REDDIM; cx.lineWidth=0.8;
+    cx.beginPath(); cx.moveTo(x,y); cx.lineTo(lx,ly); cx.stroke();
+    cx.beginPath(); cx.arc(x,y,2.5,0,Math.PI*2);
+    cx.fillStyle=RED; cx.fill();
+    cx.font=`8.5px ${MONO}`; cx.textAlign='left'; cx.textBaseline='top';
+    const pw=lines.reduce((m,l)=>Math.max(m,cx.measureText(l).width),0)+12;
+    const ph=lines.length*13+8;
+    const bx2=lx+(lx>x?4:-pw-4), by2=ly-ph/2;
+    cx.fillStyle='rgba(15,12,12,0.9)';
+    cx.strokeStyle='rgba(204,31,31,0.3)'; cx.lineWidth=0.6;
+    cx.fillRect(bx2,by2,pw,ph); cx.strokeRect(bx2,by2,pw,ph);
+    cx.fillStyle='rgba(204,31,31,0.7)';
+    lines.forEach((l,i)=>cx.fillText(l,bx2+6,by2+6+i*13));
+    cx.restore();
+  }
+
+  function drawGrid(){
+    cx.save(); cx.strokeStyle='rgba(204,31,31,0.04)'; cx.lineWidth=0.5;
+    for(let i=0;i<=W;i+=20){ cx.beginPath(); cx.moveTo(i,0); cx.lineTo(i,H); cx.stroke(); }
+    for(let j=0;j<=H;j+=20){ cx.beginPath(); cx.moveTo(0,j); cx.lineTo(W,j); cx.stroke(); }
+    cx.restore();
+  }
+
+  function drawCornerMarks(){
+    const m=16, g=28;
+    [[m,m],[W-m,m],[W-m,H-m],[m,H-m]].forEach(([x,y])=>{
+      cx.save(); cx.strokeStyle='rgba(204,31,31,0.35)'; cx.lineWidth=1;
+      const sx=x===m?1:-1, sy=y===m?1:-1;
+      cx.beginPath(); cx.moveTo(x,y); cx.lineTo(x+sx*g,y); cx.stroke();
+      cx.beginPath(); cx.moveTo(x,y); cx.lineTo(x,y+sy*g); cx.stroke();
+      cx.restore();
+    });
+  }
+
+  function drawTitleBlock(){
+    cx.save();
+    cx.font=`7px ${MONO}`; cx.fillStyle='rgba(204,31,31,0.25)'; cx.textAlign='left';
+    const lines=[
+      'PART NO:  HD-BRK-4421',
+      'MATERIAL: PETG-CF',
+      'SCALE:    1:1',
+      'TOL:      ±0.2mm',
+    ];
+    lines.forEach((l,i)=>cx.fillText(l,18,H-52+i*10));
+    cx.strokeStyle='rgba(204,31,31,0.15)'; cx.lineWidth=0.5;
+    cx.strokeRect(14,H-60,160,48);
+    cx.restore();
+  }
+
+  function drawStatusBar(){
+    cx.save();
+    cx.font=`7px ${MONO}`; cx.textAlign='right'; cx.fillStyle='rgba(204,31,31,0.28)';
+    const coord=`X:${(250).toFixed(1)}  Y:${(250).toFixed(1)}  Z:0.0`;
+    cx.fillText(coord, W-16, H-18);
+    if(blink){
+      cx.fillStyle='rgba(204,31,31,0.5)';
+      cx.fillRect(W-12,H-24,6,8);
+    }
+    cx.restore();
+  }
+
+  function drawPart(){
+    cx.save();
+    // shadow/glow
+    cx.shadowColor='rgba(204,31,31,0.15)'; cx.shadowBlur=18;
+
+    // fill
+    cx.fillStyle='rgba(204,31,31,0.05)';
+    cx.fillRect(BX,BY,BW,BH);
+    cx.fillRect(LA.x,LA.y,LA.w,LA.h);
+    cx.fillRect(RA.x,RA.y,RA.w,RA.h);
+
+    // outline
+    cx.strokeStyle=RED; cx.lineWidth=1.5;
+    // main body
+    cx.strokeRect(BX,BY,BW,BH);
+    // arms
+    cx.strokeRect(LA.x,LA.y,LA.w,LA.h);
+    cx.strokeRect(RA.x,RA.y,RA.w,RA.h);
+
+    cx.shadowBlur=0;
+
+    // centre hole
+    cx.strokeStyle=REDHI; cx.lineWidth=1;
+    cx.beginPath(); cx.arc(CH.x,CH.y,CH.r,0,Math.PI*2); cx.stroke();
+    // inner circle (thread indicator)
+    cx.strokeStyle='rgba(224,80,80,0.4)'; cx.lineWidth=0.6;
+    cx.setLineDash([3,3]);
+    cx.beginPath(); cx.arc(CH.x,CH.y,CH.r*0.65,0,Math.PI*2); cx.stroke();
+    cx.setLineDash([]);
+
+    // corner holes
+    holes.forEach(h=>{
+      cx.strokeStyle=REDHI; cx.lineWidth=0.9;
+      cx.beginPath(); cx.arc(h.x,h.y,7,0,Math.PI*2); cx.stroke();
+      cx.strokeStyle='rgba(224,80,80,0.3)'; cx.lineWidth=0.5;
+      cx.setLineDash([2,2]);
+      cx.beginPath(); cx.arc(h.x,h.y,11,0,Math.PI*2); cx.stroke();
+      cx.setLineDash([]);
+    });
+
+    // slots
+    slots.forEach(s=>{
+      cx.strokeStyle=REDHI; cx.lineWidth=0.9;
+      cx.beginPath();
+      cx.roundRect ? cx.roundRect(s.x,s.y,s.w,s.h,4) : cx.rect(s.x,s.y,s.w,s.h);
+      cx.stroke();
+    });
+
+    // centrelines on holes
+    holes.forEach(h=>crosshair(h.x,h.y,7,0.4));
+    crosshair(CH.x,CH.y,14,0.6);
+
+    cx.restore();
+  }
+
+  function drawDimensions(){
+    // Width dim — bottom
+    dimLine(BX,BY+BH+18, BX+BW,BY+BH+18, '240.0mm', 28, true);
+    // Height dim — right
+    dimLine(BX+BW+28,BY, BX+BW+28,BY+BH, '180.0mm', 28, false);
+    // Arm width dim — top
+    dimLine(80,BY-24, 420,BY-24, '340.0mm', -28, true);
+    // Centre hole Ø
+    cx.save();
+    cx.strokeStyle=REDDIM; cx.lineWidth=0.7;
+    cx.font=`8.5px ${MONO}`; cx.fillStyle=REDDIM; cx.textAlign='left';
+    cx.fillText('Ø56.0',CH.x+CH.r+6,CH.y-5);
+    cx.restore();
+  }
+
+  function drawCallouts(){
+    callout(holes[0].x,holes[0].y, 60,115,['Ø14.0 THRU','4x EQUAL']);
+    callout(slots[0].x+6,slots[0].y+13, 28,240,['SLOT','12×26']);
+    callout(BX+BW*0.75,BY+5, 390,90,['PETG-CF','2.4mm WALL']);
+  }
+
+  function drawScanLine(){
+    cx.save();
+    const grad=cx.createLinearGradient(0,scanY-30,0,scanY+30);
+    grad.addColorStop(0,'rgba(204,31,31,0)');
+    grad.addColorStop(0.45,'rgba(204,31,31,0.04)');
+    grad.addColorStop(0.5,'rgba(224,80,80,0.12)');
+    grad.addColorStop(0.55,'rgba(204,31,31,0.04)');
+    grad.addColorStop(1,'rgba(204,31,31,0)');
+    cx.fillStyle=grad;
+    cx.fillRect(0,scanY-30,W,60);
+    cx.strokeStyle='rgba(255,255,255,0.06)';
+    cx.lineWidth=1;
+    cx.beginPath(); cx.moveTo(0,scanY); cx.lineTo(W,scanY); cx.stroke();
+    cx.restore();
+  }
+
+  function drawVignette(){
+    cx.save();
+    const g=cx.createRadialGradient(W/2,H/2,H*0.1,W/2,H/2,H*0.75);
+    g.addColorStop(0,'rgba(0,0,0,0)');
+    g.addColorStop(1,'rgba(10,8,8,0.65)');
+    cx.fillStyle=g; cx.fillRect(0,0,W,H);
+    cx.restore();
+  }
+
+  function frame(){
+    requestAnimationFrame(frame);
+    cx.clearRect(0,0,W,H);
+    drawGrid();
+    drawCornerMarks();
+    drawPart();
+    drawDimensions();
+    drawCallouts();
+    drawScanLine();
+    drawTitleBlock();
+    drawStatusBar();
+    drawVignette();
+    scanY+=0.5; if(scanY>H+30) scanY=-30;
+    tick++; if(tick%60===0) blink=!blink;
+  }
+  frame();
+})();
 
 /* ── CTA FORM (legacy) ── */
 function handleSubmit(e) {
